@@ -1,18 +1,22 @@
 import { execSync } from 'child_process';
-import { readFileSync, unlinkSync, existsSync } from 'fs';
+import { readFileSync, unlinkSync, existsSync, writeFileSync } from 'fs';
 
 /**
- * Call z-ai chat CLI and return the parsed response content
+ * Call z-ai chat CLI and return the parsed response content.
+ * Uses temp files for prompt input to avoid shell escaping issues.
  */
 export async function zaiChat(prompt: string, systemPrompt: string): Promise<string> {
   const outputFile = `/tmp/z-ai-output-${Date.now()}.json`;
+  const promptFile = `/tmp/z-ai-prompt-${Date.now()}.txt`;
+  const systemFile = `/tmp/z-ai-system-${Date.now()}.txt`;
 
   try {
-    const escapedPrompt = prompt.replace(/"/g, '\\"').replace(/`/g, '\\`');
-    const escapedSystem = systemPrompt.replace(/"/g, '\\"').replace(/`/g, '\\`');
+    // Write prompts to temp files to avoid shell escaping issues
+    writeFileSync(promptFile, prompt, 'utf-8');
+    writeFileSync(systemFile, systemPrompt, 'utf-8');
 
-    const command = `z-ai chat --prompt "${escapedPrompt}" --system "${escapedSystem}" --output ${outputFile}`;
-    execSync(command, { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
+    const command = `z-ai chat --prompt "$(cat ${promptFile})" --system "$(cat ${systemFile})" --output ${outputFile}`;
+    execSync(command, { timeout: 120000, maxBuffer: 10 * 1024 * 1024, shell: '/bin/bash' });
 
     if (!existsSync(outputFile)) {
       throw new Error('z-ai chat did not produce output file');
@@ -28,8 +32,9 @@ export async function zaiChat(prompt: string, systemPrompt: string): Promise<str
 
     return content;
   } finally {
-    if (existsSync(outputFile)) {
-      unlinkSync(outputFile);
+    // Clean up temp files
+    for (const f of [outputFile, promptFile, systemFile]) {
+      try { if (existsSync(f)) unlinkSync(f); } catch {}
     }
   }
 }
@@ -57,15 +62,19 @@ export async function zaiChatJSON<T = unknown>(prompt: string, systemPrompt: str
 }
 
 /**
- * Call z-ai web_search function and return the search results
+ * Call z-ai web_search function and return the search results as an array.
+ * The z-ai CLI returns results directly as a JSON array.
  */
-export async function zaiWebSearch(query: string, num: number = 10): Promise<{ results: Array<{ title: string; url: string; snippet?: string }> }> {
+export async function zaiWebSearch(query: string, num: number = 10): Promise<Array<{ name: string; url: string; snippet?: string; host_name?: string }>> {
   const outputFile = `/tmp/z-ai-output-${Date.now()}.json`;
 
   try {
     const args = JSON.stringify({ query, num });
-    const command = `z-ai function --name "web_search" --args '${args.replace(/'/g, "'\\''")}' --output ${outputFile}`;
-    execSync(command, { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
+    const argsFile = `/tmp/z-ai-args-${Date.now()}.json`;
+    writeFileSync(argsFile, args, 'utf-8');
+
+    const command = `z-ai function --name "web_search" --args "$(cat ${argsFile})" --output ${outputFile}`;
+    execSync(command, { timeout: 120000, maxBuffer: 10 * 1024 * 1024, shell: '/bin/bash' });
 
     if (!existsSync(outputFile)) {
       throw new Error('z-ai web_search did not produce output file');
@@ -74,10 +83,16 @@ export async function zaiWebSearch(query: string, num: number = 10): Promise<{ r
     const raw = readFileSync(outputFile, 'utf-8');
     const parsed = JSON.parse(raw);
 
-    return parsed;
-  } finally {
-    if (existsSync(outputFile)) {
-      unlinkSync(outputFile);
+    // The API returns results directly as an array, or wrapped in { results: [...] }
+    if (Array.isArray(parsed)) {
+      return parsed;
     }
+    if (parsed?.results && Array.isArray(parsed.results)) {
+      return parsed.results;
+    }
+
+    return [];
+  } finally {
+    try { if (existsSync(outputFile)) unlinkSync(outputFile); } catch {}
   }
 }
