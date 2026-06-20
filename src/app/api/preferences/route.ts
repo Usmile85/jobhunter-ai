@@ -1,82 +1,46 @@
-import { db } from '@/lib/db';
+import { getPreferences, upsertPreferences } from '@/lib/db-pg';
 import { NextRequest, NextResponse } from 'next/server';
 
-// GET /api/preferences - Return the first JobPreference (singleton)
+// GET /api/preferences - Return job preferences
 export async function GET() {
   try {
-    const preference = await db.jobPreference.findFirst();
-
+    const preference = await getPreferences();
     if (!preference) {
       return NextResponse.json({ preference: null });
     }
-
-    // Parse JSON fields for client consumption
-    const parsed = {
+    // Normalize for frontend
+    const normalized = {
       ...preference,
-      jobTitles: preference.jobTitles ? JSON.parse(preference.jobTitles) : [],
-      locations: preference.locations ? JSON.parse(preference.locations) : [],
-      jobTypes: preference.jobTypes ? JSON.parse(preference.jobTypes) : [],
+      jobTitles: (preference as Record<string, unknown>).job_titles,
+      locations: (preference as Record<string, unknown>).locations,
+      remoteOnly: (preference as Record<string, unknown>).remote_only,
+      salaryMin: (preference as Record<string, unknown>).salary_min,
+      jobTypes: (preference as Record<string, unknown>).job_types,
     };
-
-    return NextResponse.json({ preference: parsed });
+    return NextResponse.json({ preference: normalized });
   } catch (error) {
     console.error('Error fetching preferences:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch preferences' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch preferences' }, { status: 500 });
   }
 }
 
-// POST /api/preferences - Create or update job preferences (singleton)
+// POST /api/preferences - Create or update job preferences
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { jobTitles, locations, remoteOnly, salaryMin, jobTypes } = body;
 
-    const existing = await db.jobPreference.findFirst();
+    const preference = await upsertPreferences({
+      jobTitles: jobTitles ? JSON.stringify(jobTitles) : undefined,
+      locations: locations ? JSON.stringify(locations) : undefined,
+      remoteOnly,
+      salaryMin,
+      jobTypes: jobTypes ? JSON.stringify(jobTypes) : undefined,
+    });
 
-    const data = {
-      ...(jobTitles !== undefined && { jobTitles: JSON.stringify(jobTitles) }),
-      ...(locations !== undefined && { locations: JSON.stringify(locations) }),
-      ...(remoteOnly !== undefined && { remoteOnly }),
-      ...(salaryMin !== undefined && { salaryMin }),
-      ...(jobTypes !== undefined && { jobTypes: JSON.stringify(jobTypes) }),
-    };
-
-    let preference;
-
-    if (existing) {
-      preference = await db.jobPreference.update({
-        where: { id: existing.id },
-        data,
-      });
-    } else {
-      preference = await db.jobPreference.create({
-        data: {
-          jobTitles: jobTitles ? JSON.stringify(jobTitles) : '[]',
-          locations: locations ? JSON.stringify(locations) : null,
-          remoteOnly: remoteOnly ?? false,
-          salaryMin: salaryMin ?? null,
-          jobTypes: jobTypes ? JSON.stringify(jobTypes) : null,
-        },
-      });
-    }
-
-    // Parse JSON fields for client consumption
-    const parsed = {
-      ...preference,
-      jobTitles: preference.jobTitles ? JSON.parse(preference.jobTitles) : [],
-      locations: preference.locations ? JSON.parse(preference.locations) : [],
-      jobTypes: preference.jobTypes ? JSON.parse(preference.jobTypes) : [],
-    };
-
-    return NextResponse.json({ preference: parsed });
+    return NextResponse.json({ preference });
   } catch (error) {
     console.error('Error saving preferences:', error);
-    return NextResponse.json(
-      { error: 'Failed to save preferences' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to save preferences' }, { status: 500 });
   }
 }

@@ -126,12 +126,23 @@ export default function Home() {
   const [selectedJob, setSelectedJob] = useState<SavedJob | null>(null)
   const [showJobDetail, setShowJobDetail] = useState(false)
 
-  // Fetch initial data
+  // Initialize database and fetch data
+  const [dbInitialized, setDbInitialized] = useState(false)
+
   useEffect(() => {
-    loadProfile()
-    loadSavedJobs()
-    loadNotifications()
-    loadPreferences()
+    const init = async () => {
+      try {
+        await fetch('/api/init-db')
+      } catch (e) {
+        console.error('DB init error:', e)
+      }
+      setDbInitialized(true)
+      loadProfile()
+      loadSavedJobs()
+      loadNotifications()
+      loadPreferences()
+    }
+    init()
   }, [])
 
   const loadProfile = async () => {

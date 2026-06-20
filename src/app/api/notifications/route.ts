@@ -1,20 +1,24 @@
-import { db } from '@/lib/db';
+import { getNotifications, markNotificationRead, markAllNotificationsRead } from '@/lib/db-pg';
 import { NextRequest, NextResponse } from 'next/server';
 
-// GET /api/notifications - Return all notifications sorted by createdAt desc
+// GET /api/notifications - Return all notifications
 export async function GET() {
   try {
-    const notifications = await db.notification.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return NextResponse.json({ notifications });
+    const notifications = await getNotifications();
+    // Normalize for frontend
+    const normalized = notifications.map((n: Record<string, unknown>) => ({
+      id: n.id,
+      title: n.title,
+      message: n.message,
+      type: n.type,
+      read: n.read,
+      jobId: n.job_id,
+      createdAt: n.created_at,
+    }));
+    return NextResponse.json({ notifications: normalized });
   } catch (error) {
     console.error('Error fetching notifications:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch notifications' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 });
   }
 }
 
@@ -25,42 +29,18 @@ export async function PATCH(request: NextRequest) {
     const { id, markAll } = body;
 
     if (markAll) {
-      // Mark all notifications as read
-      await db.notification.updateMany({
-        where: { read: false },
-        data: { read: true },
-      });
-
+      await markAllNotificationsRead();
       return NextResponse.json({ message: 'All notifications marked as read' });
     }
 
     if (!id) {
-      return NextResponse.json(
-        { error: 'id or markAll is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'id or markAll is required' }, { status: 400 });
     }
 
-    // Mark a single notification as read
-    const existing = await db.notification.findUnique({ where: { id } });
-    if (!existing) {
-      return NextResponse.json(
-        { error: 'Notification not found' },
-        { status: 404 }
-      );
-    }
-
-    const notification = await db.notification.update({
-      where: { id },
-      data: { read: true },
-    });
-
-    return NextResponse.json({ notification });
+    await markNotificationRead(id);
+    return NextResponse.json({ message: 'Notification marked as read' });
   } catch (error) {
     console.error('Error updating notification:', error);
-    return NextResponse.json(
-      { error: 'Failed to update notification' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update notification' }, { status: 500 });
   }
 }

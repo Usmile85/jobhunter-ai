@@ -1,4 +1,4 @@
-import { zaiChatJSON, zaiWebSearch } from '@/lib/z-ai';
+import { aiChatJSON, webSearch } from '@/lib/ai';
 import { NextRequest, NextResponse } from 'next/server';
 
 interface JobResult {
@@ -13,30 +13,27 @@ interface JobResult {
   postedDate: string | null;
 }
 
-// POST /api/jobs/search - Search for jobs using z-ai web search + AI parsing
+// POST /api/jobs/search - Search for jobs using Serper + OpenAI
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { query, location, jobType, numResults } = body;
 
     if (!query || typeof query !== 'string') {
-      return NextResponse.json(
-        { error: 'query is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'query is required' }, { status: 400 });
     }
 
     // Construct search query
     const searchParts = [query];
     if (location) searchParts.push(location);
     if (jobType) searchParts.push(jobType);
-    searchParts.push('jobs');
+    searchParts.push('jobs hiring');
 
     const searchQuery = searchParts.join(' ');
     const num = numResults || 10;
 
-    // Step 1: Web search
-    const searchResults = await zaiWebSearch(searchQuery, num);
+    // Step 1: Web search using Serper
+    const searchResults = await webSearch(searchQuery, num);
 
     if (!searchResults || searchResults.length === 0) {
       return NextResponse.json({ jobs: [] });
@@ -45,10 +42,10 @@ export async function POST(request: NextRequest) {
     // Step 2: Format search results for AI parsing
     const formattedResults = searchResults.map((r, i) => ({
       index: i + 1,
-      title: r.name || '',
+      title: r.title || '',
       url: r.url || '',
       snippet: r.snippet || '',
-      source: r.host_name || '',
+      source: r.source || '',
     }));
 
     const resultsText = JSON.stringify(formattedResults, null, 2);
@@ -73,16 +70,16 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanations.`;
 
     let jobs: JobResult[];
     try {
-      jobs = await zaiChatJSON<JobResult[]>(userPrompt, systemPrompt);
+      jobs = await aiChatJSON<JobResult[]>(userPrompt, systemPrompt);
     } catch {
-      // If AI parsing fails, create basic jobs from search results directly
+      // Fallback: create basic jobs from search results directly
       jobs = searchResults.map(r => ({
-        title: r.name || 'Unknown Position',
+        title: r.title || 'Unknown Position',
         company: 'Unknown',
         location: null,
         description: r.snippet || null,
         url: r.url || null,
-        source: r.host_name || null,
+        source: r.source || null,
         salary: null,
         jobType: null,
         postedDate: null,
@@ -90,12 +87,11 @@ IMPORTANT: Return ONLY a valid JSON array. No markdown, no explanations.`;
     }
 
     const finalJobs = Array.isArray(jobs) ? jobs : [];
-
     return NextResponse.json({ jobs: finalJobs });
   } catch (error) {
     console.error('Error searching jobs:', error);
     return NextResponse.json(
-      { error: 'Failed to search for jobs. Please try again.' },
+      { error: 'Failed to search for jobs. Please check your API keys and try again.' },
       { status: 500 }
     );
   }

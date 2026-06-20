@@ -1,8 +1,8 @@
-import { db } from '@/lib/db';
-import { zaiChat } from '@/lib/z-ai';
+import { aiChat } from '@/lib/ai';
+import { updateSavedJob } from '@/lib/db-pg';
 import { NextRequest, NextResponse } from 'next/server';
 
-// POST /api/cover-letter - Generate a cover letter using z-ai
+// POST /api/cover-letter - Generate a cover letter using OpenAI
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -29,16 +29,14 @@ ${resumeText}
 
 Write a complete, professional cover letter ready to send.`;
 
-    const coverLetter = await zaiChat(userPrompt, systemPrompt);
+    const coverLetter = await aiChat(userPrompt, systemPrompt);
 
-    // Save the cover letter to the SavedJob record if jobId is provided
+    // Save the cover letter to the SavedJob record
     if (jobId) {
-      const existing = await db.savedJob.findUnique({ where: { id: jobId } });
-      if (existing) {
-        await db.savedJob.update({
-          where: { id: jobId },
-          data: { coverLetter },
-        });
+      try {
+        await updateSavedJob(jobId, { cover_letter: coverLetter });
+      } catch (e) {
+        console.error('Could not save cover letter to job:', e);
       }
     }
 
@@ -46,7 +44,7 @@ Write a complete, professional cover letter ready to send.`;
   } catch (error) {
     console.error('Error generating cover letter:', error);
     return NextResponse.json(
-      { error: 'Failed to generate cover letter. Please try again.' },
+      { error: 'Failed to generate cover letter. Please check your OpenAI API key.' },
       { status: 500 }
     );
   }
