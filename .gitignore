@@ -50,5 +50,17 @@ test
 prompt
 
 server.log
+
+# Database
+/db/
+
+# Sandbox / internal scripts
+.zscripts/
+download/
+scripts/
+mini-services/
+examples/
+worklog.md
+
 # Skills directory
 /skills/
